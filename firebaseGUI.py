@@ -11,6 +11,8 @@ from train import build_model
 from yacs.config import CfgNode as CN
 import os.path as osp
 import itertools
+import sys
+import os
 
 from dataset.annotate import draw, get_dart_scores
 from firebase_client import FirebaseClient
@@ -34,6 +36,14 @@ class DartScoringApp:
         self.root.bind("<KeyPress-l>", self.start_game)
         self.root.bind("<KeyPress-r>", self.reset_to_menu)
         self.root.bind("<KeyPress-m>", self.on_score_submit)
+        
+        self.root.bind("<KeyPress-4>", self.navigate_gamemode_up)
+        self.root.bind("<KeyPress-2>", self.navigate_gamemode_down)
+        self.root.bind("<KeyPress-3>", self.select_gamemode)
+        self.root.bind("<KeyPress-5>", self.restart_program)
+        self.gamemodes = ["Classic", "301", "Cricket", "Around the Clock"]
+        self.current_gamemode_index = 0
+        self.selected_gamemode = None
 
         self.show_main_menu()
 
@@ -53,10 +63,53 @@ class DartScoringApp:
         self.gif_label.pack()
         self.animate_gif(0)
 
-        self.flash_label = tk.Label(self.menu_frame, text="Press L to start", font=("Arial", 24), fg="white", bg="black")
-        self.flash_label.pack()
+        # Replacing this with a "Choose gamemode" menu below
+        #self.flash_label = tk.Label(self.menu_frame, text="Press L to start", font=("Arial", 24), fg="white", bg="black")
+        #self.flash_label.pack()
+        #self.flash_text()
+        
+        self.gamemode_labels = []
+        for i, mode in enumerate(self.gamemodes):
+            lbl = tk.Label(self.menu_frame, text=mode, font=("Arial", 20), fg="white", bg="black")
+            lbl.pack()
+            self.gamemode_labels.append(lbl)
+        self.update_gamemode_highlight()
+        
+    def update_gamemode_highlight(self):
+        for i, lbl in enumerate(self.gamemode_labels):
+            if i == self.current_gamemode_index:
+                lbl.config(fg="yellow")
+            else:
+                lbl.config(fg="white")
 
-        self.flash_text()
+    def navigate_gamemode_up(self, event=None):
+        if self.menu_frame:
+            self.current_gamemode_index = (self.current_gamemode_index - 1) % len(self.gamemodes)
+            self.update_gamemode_highlight()
+
+    def navigate_gamemode_down(self, event=None):
+        if self.menu_frame:
+            self.current_gamemode_index = (self.current_gamemode_index + 1) % len(self.gamemodes)
+            self.update_gamemode_highlight()
+
+    def select_gamemode(self, event=None):
+        if self.menu_frame:
+            self.selected_gamemode = self.gamemodes[self.current_gamemode_index]
+            self.start_game()
+            
+
+    def restart_program(self, event=None):
+        print("Restarting the application...")
+        try:
+            self.running = False
+            self.firebase.stop_all_streams()
+        except:
+            pass
+        self.root.destroy()
+
+        # Fully replace this process with a fresh one
+        python = sys.executable
+        os.execl(python, python, *sys.argv)
 
     def flash_text(self):
         if self.flash_label:
@@ -67,7 +120,7 @@ class DartScoringApp:
     def load_gif(self, filepath):
         from PIL import Image, ImageSequence
         gif = Image.open(filepath)
-        return [frame.copy().resize((1000, 1000)) for frame in ImageSequence.Iterator(gif)]
+        return [frame.copy().resize((600, 600)) for frame in ImageSequence.Iterator(gif)]
 
     def animate_gif(self, frame_index):
         if hasattr(self, 'gif_frames') and self.gif_frames:
@@ -109,6 +162,17 @@ class DartScoringApp:
 
         # game_id = str(uuid.uuid4())
         self.game_id = str(uuid.uuid4())[:8]
+        
+        style = ttk.Style()
+        style.theme_use("default")
+        style.configure("Treeview",
+                        background="#222",
+                        foreground="white",
+                        fieldbackground="#pl222",
+                        rowheight=30,
+                        font=("Arial", 12))
+        style.configure("Treeview.Heading", background="#111", foreground="white", font=("Arial", 12, "bold"))
+        style.map("Treeview", background=[("selected", "#444")])
 
         self.setup_ui()
         self.running = True
@@ -126,7 +190,7 @@ class DartScoringApp:
         self.logo_side.config(image=self.logo_img_small)
         self.logo_side.place(x=10, y=10)
 
-        self.player1_frame = tk.Frame(self.game_frame, bg="#222")
+        self.player1_frame = tk.Frame(self.game_frame, bg="#222", height=200)
         self.player1_frame.pack(fill="x", padx=10, pady=5)
 
         tk.Label(self.player1_frame, text="Player 1", font=("Arial", 16), fg="white", bg="#222").pack()
@@ -145,11 +209,14 @@ class DartScoringApp:
             self.table_p1.heading(col, text=col)
             self.table_p1.column(col, width=80)
         self.table_p1.pack(padx=10, pady=5)
+        
+        self.p1_total_label = tk.Label(self.player1_frame, text="Total: 0", font=("Arial", 24, "bold"), fg="white", bg="#222")
+        self.p1_total_label.pack(anchor="e", padx=10)
 
         self.video_frame = tk.Label(self.game_frame, bg="black")
         self.video_frame.pack(pady=5)
 
-        self.player2_frame = tk.Frame(self.game_frame, bg="#222")
+        self.player2_frame = tk.Frame(self.game_frame, bg="#222", height=200)
         self.player2_frame.pack(fill="x", padx=10, pady=5)
 
         tk.Label(self.player2_frame, text="Player 2", font=("Arial", 16), fg="white", bg="#222").pack()
@@ -168,7 +235,10 @@ class DartScoringApp:
             self.table_p2.heading(col, text=col)
             self.table_p2.column(col, width=80)
         self.table_p2.pack(padx=10, pady=5)
-        
+
+        self.p2_total_label = tk.Label(self.player2_frame, text="Total: 0", font=("Arial", 24, "bold"), fg="white", bg="#222")
+        self.p2_total_label.pack(anchor="e", padx=10)
+
         self.uuid_label = tk.Label(
             self.game_frame,
             text=f"Game code: {self.game_id}",
@@ -268,10 +338,15 @@ class DartScoringApp:
                     scores_list.append(score)
                 elif isinstance(score, dict) and all(k in score for k in ['0', '1', '2']):
                     scores_list.append([score['0'], score['1'], score['2']])
-        for score in scores_list:
+        for score in scores_list[-4:]:
             if all(isinstance(x, (int, float)) for x in score):
                 total = sum(score)
                 table.insert('', 'end', values=(score[0], score[1], score[2], total))
+        running_total = sum(sum(score) for score in scores_list if all(isinstance(x, (int, float)) for x in score))
+        if player == "player1":
+            self.p1_total_label.config(text=f"Total: {running_total}")
+        else:
+            self.p2_total_label.config(text=f"Total: {running_total}")
 
     def load_config(self):
         cfg = CN(new_allowed=True)
