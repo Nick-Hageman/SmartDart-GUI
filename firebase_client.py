@@ -3,7 +3,7 @@ from firebase_admin import credentials, db
 import threading
 
 class FirebaseClient:
-    def __init__(self, game_id):
+    def __init__(self, game_id, selected_gamemode):
         cred = credentials.Certificate("serviceAccountKey.json")
         if not firebase_admin._apps:
             firebase_admin.initialize_app(cred, {
@@ -12,6 +12,7 @@ class FirebaseClient:
             })
         self.game_ref = db.reference(f'games/{game_id}')
         self.listeners = {}
+        self.selected_gamemode = selected_gamemode
 
         # Initialize game state here
         self.initialize_game_state()
@@ -19,7 +20,8 @@ class FirebaseClient:
     def initialize_game_state(self):
         self.game_ref.update({
             "turn": "player1",
-            "turnNum": 0
+            "turnNum": 0,
+            "gamemode": self.selected_gamemode
         })
 
     def add_score(self, player, dart_values):

@@ -41,9 +41,15 @@ class DartScoringApp:
         self.root.bind("<KeyPress-2>", self.navigate_gamemode_down)
         self.root.bind("<KeyPress-3>", self.select_gamemode)
         self.root.bind("<KeyPress-5>", self.restart_program)
-        self.gamemodes = ["Classic", "301", "Cricket", "Around the Clock"]
+        self.gamemodes = ["Local Game", "Online PVP", "Player VS Computer"]
+        self.firebase_gamemodes = ["Local", "Online", "COM"]
+        self.firebase_gamemode = ""
         self.current_gamemode_index = 0
         self.selected_gamemode = None
+        
+        self.player1Score = 501
+        self.player2Score = 501
+        self.dart_labels = []
 
         self.show_main_menu()
 
@@ -95,6 +101,8 @@ class DartScoringApp:
     def select_gamemode(self, event=None):
         if self.menu_frame:
             self.selected_gamemode = self.gamemodes[self.current_gamemode_index]
+            self.firebase_gamemode = self.firebase_gamemodes[self.current_gamemode_index]
+
             self.start_game()
             
 
@@ -110,6 +118,35 @@ class DartScoringApp:
         # Fully replace this process with a fresh one
         python = sys.executable
         os.execl(python, python, *sys.argv)
+
+    def show_win_popup(self):
+        # Create a custom popup window
+        win_popup = tk.Toplevel(self.root)
+        win_popup.title("Game Over")
+        win_popup.geometry("300x150")
+        win_popup.grab_set()  # Focus on the popup
+
+        label = tk.Label(win_popup, text="You have won!\nPress 'R' to restart", font=("Arial", 14))
+        label.pack(expand=True, pady=20)
+
+        # Bind the "r" key to restart the program
+        def on_r_press(event):
+            win_popup.destroy()
+            self.restart_program()
+
+        win_popup.bind("<r>", on_r_press)
+        win_popup.bind("<R>", on_r_press)  # Allow both lowercase and uppercase R
+
+        # Optional: Center the popup window
+        self.center_popup(win_popup)
+
+    def center_popup(self, popup):
+        popup.update_idletasks()
+        w = popup.winfo_width()
+        h = popup.winfo_height()
+        x = (popup.winfo_screenwidth() // 2) - (w // 2)
+        y = (popup.winfo_screenheight() // 2) - (h // 2)
+        popup.geometry(f"{w}x{h}+{x}+{y}")
 
     def flash_text(self):
         if self.flash_label:
@@ -178,9 +215,7 @@ class DartScoringApp:
         self.running = True
         self.update_video_stream()
 
-        self.firebase = FirebaseClient(self.game_id)
-
-        self.firebase = FirebaseClient(self.game_id)
+        self.firebase = FirebaseClient(self.game_id, self.firebase_gamemode)
         self.firebase.stream_scores("player1", self.update_table_from_firebase)
         self.firebase.stream_scores("player2", self.update_table_from_firebase)
 
@@ -210,7 +245,7 @@ class DartScoringApp:
             self.table_p1.column(col, width=80)
         self.table_p1.pack(padx=10, pady=5)
         
-        self.p1_total_label = tk.Label(self.player1_frame, text="Total: 0", font=("Arial", 24, "bold"), fg="white", bg="#222")
+        self.p1_total_label = tk.Label(self.player1_frame, text="Total: 501", font=("Arial", 24, "bold"), fg="white", bg="#222")
         self.p1_total_label.pack(anchor="e", padx=10)
 
         self.video_frame = tk.Label(self.game_frame, bg="black")
@@ -236,7 +271,7 @@ class DartScoringApp:
             self.table_p2.column(col, width=80)
         self.table_p2.pack(padx=10, pady=5)
 
-        self.p2_total_label = tk.Label(self.player2_frame, text="Total: 0", font=("Arial", 24, "bold"), fg="white", bg="#222")
+        self.p2_total_label = tk.Label(self.player2_frame, text="Total: 501", font=("Arial", 24, "bold"), fg="white", bg="#222")
         self.p2_total_label.pack(anchor="e", padx=10)
 
         self.uuid_label = tk.Label(
@@ -264,6 +299,7 @@ class DartScoringApp:
                     frame_annotated = draw(frame_rgb.copy(), xy[:, :2], self.cfg, circles=False, score=True)
 
                     dart_scores = get_dart_scores(preds[:, :2], self.cfg, numeric=True)
+                    self.dart_labels = get_dart_scores(preds[:, :2], self.cfg, numeric=False)
                     self.update_dart_score_labels(dart_scores)
 
                     img = Image.fromarray(frame_annotated).resize((600, 600))
@@ -304,17 +340,35 @@ class DartScoringApp:
             self.dart3_p1.config(fg=inactive_fg)
 
     def on_score_submit(self, event=None):
+        hasDouble = False
+        for x in self.dart_labels: # checks if one of the darts thrown is a double, can't check if final dart is double because we don't have a sequential order
+            if "D" in x:
+                hasDouble = True
+
         if self.current_player == 1:
             d1 = int(self.dart1_p1.cget("text").split(": ")[1])
             d2 = int(self.dart2_p1.cget("text").split(": ")[1])
             d3 = int(self.dart3_p1.cget("text").split(": ")[1])
-            self.firebase.add_score("player1", [d1, d2, d3])
+            # win condition
+            if self.player1Score - sum([d1, d2, d3]) == 0 and hasDouble:
+                self.firebase.add_score("player1", [d1, d2, d3])
+                self.show_win_popup()
+            # check if didn't bust
+            if self.player1Score - sum([d1, d2, d3]) > 1:
+                self.firebase.add_score("player1", [d1, d2, d3])
             self.current_player = 2
         else:
             d1 = int(self.dart1_p2.cget("text").split(": ")[1])
             d2 = int(self.dart2_p2.cget("text").split(": ")[1])
             d3 = int(self.dart3_p2.cget("text").split(": ")[1])
-            self.firebase.add_score("player2", [d1, d2, d3])
+            # win condition
+            if self.player2Score - sum([d1, d2, d3]) == 0 and hasDouble:
+                self.firebase.add_score("player2", [d1, d2, d3])
+                self.show_win_popup()
+            # check if didn't bust
+            if self.player2Score - sum([d1, d2, d3]) > 1:
+                self.firebase.add_score("player2", [d1, d2, d3])
+
             self.current_player = 1
             self.round_counter += 1
 
@@ -342,10 +396,12 @@ class DartScoringApp:
             if all(isinstance(x, (int, float)) for x in score):
                 total = sum(score)
                 table.insert('', 'end', values=(score[0], score[1], score[2], total))
-        running_total = sum(sum(score) for score in scores_list if all(isinstance(x, (int, float)) for x in score))
+        running_total = 501 - sum(sum(score) for score in scores_list if all(isinstance(x, (int, float)) for x in score))
         if player == "player1":
+            self.player1Score = running_total
             self.p1_total_label.config(text=f"Total: {running_total}")
         else:
+            self.player2Score = running_total
             self.p2_total_label.config(text=f"Total: {running_total}")
 
     def load_config(self):
